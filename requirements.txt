@@ -1,0 +1,11 @@
+# Base requirements - minimalist approach
+# MockPy core has no dependencies by default
+
+# Optional dependencies
+# Uncomment as needed
+
+# Translation support
+# translators>=5.4.0
+
+# JSON Schema support
+# jsonschema>=4.17.3
