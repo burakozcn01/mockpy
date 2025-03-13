@@ -1,16 +1,20 @@
 from setuptools import setup, find_packages
-import os
+import re
+
+def get_version():
+    with open("mockpy/__init__.py", "r", encoding="utf-8") as f:
+        version_file = f.read()
+    version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_file, re.M)
+    if version_match:
+        return version_match.group(1)
+    raise RuntimeError("Unable to find version string.")
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-about = {}
-with open(os.path.join("mockpy", "__init__.py"), "r", encoding="utf-8") as f:
-    exec(f.read(), about)
-
 setup(
     name="mockpy",
-    version=about["__version__"],
+    version=get_version(),
     author="Reloading",
     author_email="reloading001@hotmail.com",
     description="Comprehensive realistic data generation library for testing and development",
