@@ -52,8 +52,7 @@ setup(
     keywords=["mock", "fake", "data", "testing", "development", "faker", "generator", 
              "test data", "random data", "dummy data", "sample data"],
     project_urls={
-        "Bug Reports": "https://github.com/mockpy/mockpy/issues",
-        "Source": "https://github.com/mockpy/mockpy",
-        "Documentation": "https://mockpy.github.io/",
+        "Bug Reports": "https://github.com/burakozcn01/mockpy/issues",
+        "Source": "https://github.com/burakozcn01/mockpy",
     },
 )
