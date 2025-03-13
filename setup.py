@@ -1,11 +1,9 @@
 from setuptools import setup, find_packages
 import os
 
-# Get long description from README.md
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-# Get version from __init__.py
 about = {}
 with open(os.path.join("mockpy", "__init__.py"), "r", encoding="utf-8") as f:
     exec(f.read(), about)
@@ -13,8 +11,8 @@ with open(os.path.join("mockpy", "__init__.py"), "r", encoding="utf-8") as f:
 setup(
     name="mockpy",
     version=about["__version__"],
-    author="MockPy Team",
-    author_email="info@mockpy.com",
+    author="Reloading",
+    author_email="reloading001@hotmail.com",
     description="Comprehensive realistic data generation library for testing and development",
     long_description=long_description,
     long_description_content_type="text/markdown",
