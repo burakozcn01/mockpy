@@ -22,6 +22,10 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/burakozcn01/mockpy",
     packages=find_packages(),
+    include_package_data=True,
+    package_data={
+        'mockpy.data.locales': ['*.json'],
+    },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
@@ -42,7 +46,7 @@ setup(
     python_requires=">=3.7",
     install_requires=[],
     extras_require={
-        "full": ["translators", "jsonschema", "django", "flask", "sqlalchemy", "pydantic"],
+        "full": ["translators", "jsonschema", "django", "flask", "sqlalchemy", "pydantic", "numpy"],
         "translate": ["translators"],
         "jsonschema": ["jsonschema"],
         "django": ["django"],
@@ -50,6 +54,7 @@ setup(
         "sqlalchemy": ["sqlalchemy"],
         "fastapi": ["fastapi", "pydantic"],
         "dev": ["pytest", "pytest-cov", "black", "isort", "flake8", "pylint"],
+        "performance": ["numpy"], 
     },
     keywords=["mock", "fake", "data", "testing", "development", "faker", "generator", 
              "test data", "random data", "dummy data", "sample data"],

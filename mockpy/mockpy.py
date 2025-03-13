@@ -11,21 +11,34 @@ import datetime
 import re
 import json
 import uuid
-
-from typing import Dict, List, Any, Optional, Union, TypeVar
-from dataclasses import dataclass, field
-import warnings
+import os
 import time
+import logging
+import threading
+import warnings
+
+from typing import Dict, List, Any, Optional, Union, TypeVar, Set, Generator
+from dataclasses import dataclass, field
+from functools import lru_cache
+
+__version__ = "1.0"
+
+T = TypeVar('T')
+logger = logging.getLogger(__name__)
+
+LOCALE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "locales")
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 try:
     import translators as ts
     TRANSLATION_AVAILABLE = True
 except ImportError:
     TRANSLATION_AVAILABLE = False
-
-__version__ = "0.1.0"
-
-T = TypeVar('T')
 
 class MockPyError(Exception):
     """Base exception class for MockPy library"""
@@ -39,6 +52,54 @@ class MockPyValueError(MockPyError):
     """Exception for value-related errors"""
     pass
 
+@lru_cache(maxsize=32)
+def get_available_locales() -> Set[str]:
+    """
+    Get a set of available locale codes from the filesystem.
+    
+    Returns:
+        Set of available locale codes (e.g. "en_US", "tr_TR")
+    """
+    try:
+        return {
+            os.path.splitext(f)[0] 
+            for f in os.listdir(LOCALE_PATH) 
+            if f.endswith('.json')
+        }
+    except (FileNotFoundError, NotADirectoryError):
+        return {"en_US", "tr_TR"}
+
+@lru_cache(maxsize=32)
+def load_locale_from_json(locale_code: str) -> Dict[str, Any]:
+    """
+    Load locale data from a JSON file.
+    
+    Args:
+        locale_code: The locale code (e.g. "en_US", "tr_TR")
+        
+    Returns:
+        Dictionary containing locale data
+    
+    Raises:
+        FileNotFoundError: If the locale file is not found
+    """
+    try:
+        file_path = os.path.join(LOCALE_PATH, f"{locale_code}.json")
+        
+        if not os.path.exists(file_path):
+            logger.warning(f"Locale file not found: {file_path}")
+            if locale_code != "en_US" and "en_US" in get_available_locales():
+                logger.info(f"Falling back to en_US locale")
+                return load_locale_from_json("en_US")
+            raise FileNotFoundError(f"Locale file not found: {file_path}")
+            
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing locale file {locale_code}: {str(e)}")
+        raise
+
 @dataclass
 class DataRegistry:
     """Registry for data sources"""
@@ -47,116 +108,86 @@ class DataRegistry:
     
     @staticmethod
     def load_locale_data(locale_code: str) -> Dict[str, Any]:
-        """Load locale data for a specific locale code"""
-        locale_data = {}
+        """
+        Load locale data for a specific locale code
         
+        Args:
+            locale_code: The locale code (e.g. "en_US", "tr_TR")
+            
+        Returns:
+            Dictionary containing locale data
+        """
+        try:
+            return load_locale_from_json(locale_code)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return DataRegistry._fallback_locale_data(locale_code)
+    
+    @staticmethod
+    def _fallback_locale_data(locale_code: str) -> Dict[str, Any]:
+        """
+        Fallback method for backward compatibility.
+        
+        Args:
+            locale_code: The locale code (e.g. "en_US", "tr_TR")
+            
+        Returns:
+            Dictionary containing locale data
+        """
         if locale_code.startswith("tr"):
-            locale_data = {
+            return {
                 "first_names": ["Ahmet", "Mehmet", "Ayşe", "Fatma", "Ali", "Zeynep", "Mustafa", "Emine", 
-                              "Hüseyin", "İbrahim", "Hatice", "Elif", "Murat", "Hasan", "Merve", "Seda",
-                              "Oğuz", "Burak", "Serkan", "Özge", "Ece", "Deniz", "Gül", "Emre", "Kemal",
-                              "Tülay", "Selim", "Ebru", "Bilge", "Tolga", "Pınar", "Onur", "Demet", "Cem"],
+                              "Hüseyin", "İbrahim", "Hatice", "Elif", "Murat", "Hasan", "Merve", "Seda"],
                 "last_names": ["Yılmaz", "Kaya", "Demir", "Çelik", "Şahin", "Yıldız", "Özdemir", "Aydın", 
-                              "Arslan", "Doğan", "Kılıç", "Aslan", "Çetin", "Şen", "Koç", "Özkan",
-                              "Yüksel", "Polat", "Aktaş", "Altun", "Taş", "Bulut", "Öztürk", "Kılınç",
-                              "Acar", "Avcı", "Tekin", "Yalçın", "Aksoy", "Uçar", "Kaplan", "Turan"],
-                "cities": ["İstanbul", "Ankara", "İzmir", "Bursa", "Antalya", "Adana", "Konya", "Kayseri", 
-                          "Trabzon", "Samsun", "Eskişehir", "Gaziantep", "Diyarbakır", "Mersin",
-                          "Denizli", "Erzurum", "Malatya", "Kocaeli", "Şanlıurfa", "Aydın", "Hatay",
-                          "Manisa", "Balıkesir", "Kahramanmaraş", "Van", "Sakarya", "Tekirdağ"],
+                              "Arslan", "Doğan", "Kılıç", "Aslan", "Çetin", "Şen", "Koç", "Özkan"],
+                "cities": ["İstanbul", "Ankara", "İzmir", "Bursa", "Antalya", "Adana", "Konya", "Kayseri"],
                 "street_types": ["Sokak", "Caddesi", "Bulvarı", "Meydanı"],
                 "domains": [".com.tr", ".com", ".net", ".org", ".biz", ".info"],
                 "email_providers": ["gmail.com", "hotmail.com", "yahoo.com", "outlook.com"],
-                "phone_prefixes": ["530", "532", "535", "536", "537", "538", "539", 
-                                 "540", "541", "542", "543", "544", "545", "546", "547", "548", "549",
-                                 "505", "506", "507", "551", "552", "553", "554", "555", "559"],
+                "phone_prefixes": ["530", "532", "535", "536", "537", "538", "539"],
                 "currency": {"code": "TRY", "symbol": "₺"},
                 "country": "Türkiye",
                 "country_code": "TR",
                 "language": "Türkçe",
                 "timezone": "Europe/Istanbul",
                 "iban_prefix": "TR",
-                "job_titles": ["Yazılım Mühendisi", "Veri Analisti", "Proje Yöneticisi", "Pazarlama Uzmanı", 
-                              "İnsan Kaynakları Uzmanı", "Grafik Tasarımcı", "Sosyal Medya Yöneticisi", 
-                              "Muhasebeci", "Satış Temsilcisi", "Müşteri Hizmetleri Temsilcisi",
-                              "Sistem Yöneticisi", "Ağ Uzmanı", "Finansal Analist", "İş Geliştirme Uzmanı",
-                              "Ürün Müdürü", "İçerik Yazarı", "Dijital Pazarlama Uzmanı", "CEO", "CTO", "CFO"],
-                "departments": ["Yazılım", "Pazarlama", "İnsan Kaynakları", "Finans", "Satış", 
-                              "Müşteri Hizmetleri", "Ar-Ge", "Operasyon", "Hukuk", "Bilgi Teknolojileri", 
-                              "Lojistik", "Üretim", "Kalite Kontrol", "İdari İşler", "Güvenlik"],
-                "street_names": ["Atatürk", "Cumhuriyet", "İstiklal", "Barış", "Uğur", "Gül", "Lale", 
-                               "Menekşe", "Papatya", "Zambak", "Çınar", "Meşe", "Zeytin", "Palmiye", 
-                               "Ağaç", "Gazi", "Yıldırım", "Fatih", "Mimar Sinan", "Yavuz", "Kanuni"],
+                "job_titles": ["Yazılım Mühendisi", "Veri Analisti", "Proje Yöneticisi", "Pazarlama Uzmanı"],
+                "departments": ["Yazılım", "Pazarlama", "İnsan Kaynakları", "Finans", "Satış"],
+                "street_names": ["Atatürk", "Cumhuriyet", "İstiklal", "Barış", "Uğur", "Gül", "Lale"],
                 "company_suffixes": ["A.Ş.", "Ltd. Şti.", "Holding", "Grup", "Sanayi", "Teknoloji", "Yazılım"],
-                "company_sectors": ["Teknoloji", "Yazılım", "Medikal", "İnşaat", "Otomotiv", "Finans", "Gıda",
-                                  "Tekstil", "Mobilya", "Enerji", "Eğitim", "Turizm", "Lojistik", "Sağlık"],
-                "universities": ["İstanbul Üniversitesi", "ODTÜ", "Boğaziçi Üniversitesi", "İTÜ", 
-                               "Ankara Üniversitesi", "Hacettepe Üniversitesi", "Ege Üniversitesi", 
-                               "Yıldız Teknik Üniversitesi", "Koç Üniversitesi", "Sabancı Üniversitesi"],
+                "company_sectors": ["Teknoloji", "Yazılım", "Medikal", "İnşaat", "Otomotiv", "Finans", "Gıda"],
+                "universities": ["İstanbul Üniversitesi", "ODTÜ", "Boğaziçi Üniversitesi", "İTÜ"],
                 "degrees": ["Lisans", "Yüksek Lisans", "Doktora", "Önlisans", "Lise"],
                 "fields_of_study": ["Bilgisayar Mühendisliği", "Elektrik-Elektronik Mühendisliği", 
-                                  "İşletme", "Ekonomi", "Tıp", "Hukuk", "Psikoloji", "Sosyoloji", 
-                                  "Makine Mühendisliği", "Mimarlık", "Moleküler Biyoloji ve Genetik",
-                                  "Endüstri Mühendisliği", "Fizik", "Kimya", "Matematik"]
+                                  "İşletme", "Ekonomi", "Tıp", "Hukuk", "Psikoloji", "Sosyoloji"]
             }
         else:  
-            locale_data = {
+            return {
                 "first_names": ["John", "Jane", "Michael", "Emily", "David", "Sarah", "Robert", "Lisa", 
-                              "James", "Linda", "William", "Mary", "Richard", "Patricia", "Joseph", "Jennifer",
-                              "Thomas", "Elizabeth", "Charles", "Susan", "Christopher", "Jessica", "Daniel", 
-                              "Margaret", "Matthew", "Karen", "Anthony", "Nancy", "Mark", "Betty", "Donald", 
-                              "Sandra", "Steven", "Ashley", "Paul", "Dorothy", "Andrew", "Kimberly", "Joshua"],
+                              "James", "Linda", "William", "Mary", "Richard", "Patricia", "Joseph", "Jennifer"],
                 "last_names": ["Smith", "Johnson", "Williams", "Brown", "Jones", "Miller", "Davis", "Garcia", 
-                              "Rodriguez", "Wilson", "Martinez", "Anderson", "Taylor", "Thomas", "Moore", "Jackson",
-                              "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", 
-                              "Ramirez", "Lewis", "Robinson", "Walker", "Young", "Allen", "King", "Wright", 
-                              "Scott", "Torres", "Nguyen", "Hill", "Flores", "Green", "Adams", "Nelson"],
+                              "Rodriguez", "Wilson", "Martinez", "Anderson", "Taylor", "Thomas", "Moore", "Jackson"],
                 "cities": ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", 
-                          "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Jacksonville", 
-                          "San Francisco", "Columbus", "Indianapolis", "Seattle", "Denver", "Boston", 
-                          "Portland", "Las Vegas", "Nashville", "Detroit", "Baltimore", "Charlotte", 
-                          "Memphis", "Atlanta", "Miami", "Tucson", "Sacramento", "Kansas City"],
-                "street_types": ["Street", "Avenue", "Boulevard", "Lane", "Road", "Drive", "Court", "Place", 
-                              "Circle", "Way", "Highway", "Parkway", "Terrace", "Trail", "Path"],
+                          "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Jacksonville"],
+                "street_types": ["Street", "Avenue", "Boulevard", "Lane", "Road", "Drive", "Court", "Place"],
                 "domains": [".com", ".net", ".org", ".io", ".co", ".us", ".info", ".biz"],
-                "email_providers": ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", 
-                                  "aol.com", "protonmail.com", "mail.com", "zoho.com"],
-                "phone_prefixes": ["201", "202", "203", "205", "206", "207", "208", "209", "210", 
-                                 "212", "213", "214", "215", "216", "217", "218", "219", "301", 
-                                 "302", "303", "304", "305", "307", "308", "309", "310", "312", 
-                                 "313", "314", "315", "316", "317", "318", "319", "320", "321"],
+                "email_providers": ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"],
+                "phone_prefixes": ["201", "202", "203", "205", "206", "207", "208", "209", "210"],
                 "currency": {"code": "USD", "symbol": "$"},
                 "country": "United States",
                 "country_code": "US",
                 "language": "English",
                 "timezone": "America/New_York",
                 "iban_prefix": "US",
-                "job_titles": ["Software Engineer", "Data Analyst", "Project Manager", "Marketing Specialist", 
-                              "HR Manager", "Graphic Designer", "Social Media Manager", 
-                              "Accountant", "Sales Representative", "Customer Service Representative",
-                              "Systems Administrator", "Network Engineer", "Financial Analyst", 
-                              "Business Development Manager", "Product Manager", "Content Writer", 
-                              "Digital Marketing Specialist", "CEO", "CTO", "CFO"],
-                "departments": ["Engineering", "Marketing", "Human Resources", "Finance", "Sales", 
-                              "Customer Support", "R&D", "Operations", "Legal", "IT", 
-                              "Logistics", "Production", "Quality Assurance", "Administration", "Security"],
-                "street_names": ["Main", "Oak", "Maple", "Washington", "Lincoln", "Park", "Cedar", 
-                               "Pine", "Elm", "Lake", "Hill", "River", "Valley", "Forest", 
-                               "Meadow", "Jefferson", "Adams", "Madison", "Franklin", "Central"],
+                "job_titles": ["Software Engineer", "Data Analyst", "Project Manager", "Marketing Specialist"],
+                "departments": ["Engineering", "Marketing", "Human Resources", "Finance", "Sales"],
+                "street_names": ["Main", "Oak", "Maple", "Washington", "Lincoln", "Park", "Cedar"],
                 "company_suffixes": ["Inc.", "LLC", "Corp.", "Group", "Industries", "Tech", "Software", "Solutions"],
-                "company_sectors": ["Technology", "Software", "Medical", "Construction", "Automotive", "Finance", "Food",
-                                  "Textile", "Furniture", "Energy", "Education", "Tourism", "Logistics", "Healthcare"],
-                "universities": ["Harvard University", "MIT", "Stanford University", "Yale University", 
-                               "Princeton University", "Columbia University", "University of Chicago", 
-                               "University of Michigan", "Cornell University", "Duke University"],
+                "company_sectors": ["Technology", "Software", "Medical", "Construction", "Automotive", "Finance", "Food"],
+                "universities": ["Harvard University", "MIT", "Stanford University", "Yale University"],
                 "degrees": ["Bachelor's", "Master's", "PhD", "Associate's", "High School Diploma"],
                 "fields_of_study": ["Computer Science", "Electrical Engineering", 
-                                  "Business Administration", "Economics", "Medicine", "Law", "Psychology", "Sociology", 
-                                  "Mechanical Engineering", "Architecture", "Molecular Biology", 
-                                  "Industrial Engineering", "Physics", "Chemistry", "Mathematics"]
+                                  "Business Administration", "Economics", "Medicine", "Law", "Psychology", "Sociology"]
             }
-        
-        return locale_data
 
 class TranslationService:
     """Service for translating data to different languages using free translation APIs"""
@@ -310,13 +341,25 @@ class Provider:
     @property
     def locale_data(self):
         return self.mockpy._locale_data
+    
+    def random_choice(self, elements, size=1):
+        """Optimized random choice implementation"""
+        if HAS_NUMPY and len(elements) > 1000:
+            indices = np.random.randint(0, len(elements), size=size)
+            if size == 1:
+                return elements[indices[0]]
+            return [elements[i] for i in indices]
+        else:
+            if size == 1:
+                return self.random.choice(elements)
+            return self.random.choices(elements, k=size)
 
 class PersonProvider(Provider):
     """Provider for person-related data"""
     
     def name(self, gender: str = None) -> str:
         """Generate a random first name"""
-        return self.random.choice(self.locale_data["first_names"])
+        return self.random_choice(self.locale_data["first_names"])
     
     def first_name(self, gender: str = None) -> str:
         """Generate a random first name"""
@@ -324,7 +367,7 @@ class PersonProvider(Provider):
     
     def last_name(self) -> str:
         """Generate a random last name"""
-        return self.random.choice(self.locale_data["last_names"])
+        return self.random_choice(self.locale_data["last_names"])
     
     def full_name(self, gender: str = None) -> str:
         """Generate a random full name"""
@@ -332,7 +375,7 @@ class PersonProvider(Provider):
     
     def gender(self) -> str:
         """Generate a random gender"""
-        return self.random.choice(["male", "female", "non-binary"])
+        return self.random_choice(["male", "female", "non-binary"])
     
     def birth_date(self, min_age: int = 18, max_age: int = 80) -> datetime.date:
         """
@@ -378,7 +421,7 @@ class PersonProvider(Provider):
         country_code = self.mockpy.locale.split("_")[1] if "_" in self.mockpy.locale else "US"
         
         if country_code == "TR":
-            prefix = self.random.choice(self.locale_data["phone_prefixes"])
+            prefix = self.random_choice(self.locale_data["phone_prefixes"])
             subscriber = ''.join(self.random.choices(string.digits, k=7))
             
             if formatted:
@@ -395,6 +438,18 @@ class PersonProvider(Provider):
             else:
                 return f"+1{area_code}{exchange}{subscriber}"
     
+    @lru_cache(maxsize=128)
+    def _email_pattern(self, first, last):
+        """Generate email pattern (cached for performance)"""
+        patterns = [
+            lambda f, l: f"{f}",
+            lambda f, l: f"{f}.{l}",
+            lambda f, l: f"{f}{l}",
+            lambda f, l: f"{f[0]}{l}",
+            lambda f, l: f"{f}{l[0]}"
+        ]
+        return self.random_choice(patterns)(first, last)
+    
     def email(self, name: str = None, domain: str = None) -> str:
         """
         Generate an email address
@@ -410,21 +465,13 @@ class PersonProvider(Provider):
             first = self.first_name().lower()
             last = self.last_name().lower()
             
-            patterns = [
-                lambda f, l: f"{f}",
-                lambda f, l: f"{f}.{l}",
-                lambda f, l: f"{f}{l}",
-                lambda f, l: f"{f[0]}{l}",
-                lambda f, l: f"{f}{l[0]}"
-            ]
-            
-            name = self.random.choice(patterns)(first, last)
+            name = self._email_pattern(first, last)
             
             if self.random.random() < 0.3:
                 name += str(self.random.randint(1, 9999))
         
         if domain is None:
-            domain = self.random.choice(self.locale_data["email_providers"])
+            domain = self.random_choice(self.locale_data["email_providers"])
         
         return f"{name}@{domain}"
     
@@ -473,17 +520,17 @@ class PersonProvider(Provider):
     
     def job_title(self) -> str:
         """Generate a random job title"""
-        return self.random.choice(self.locale_data["job_titles"])
+        return self.random_choice(self.locale_data["job_titles"])
     
     def department(self) -> str:
         """Generate a random department name"""
-        return self.random.choice(self.locale_data["departments"])
+        return self.random_choice(self.locale_data["departments"])
     
     def education(self) -> DataContainer:
         """Generate random education information"""
-        university = self.random.choice(self.locale_data["universities"])
-        degree = self.random.choice(self.locale_data["degrees"])
-        field = self.random.choice(self.locale_data["fields_of_study"])
+        university = self.random_choice(self.locale_data["universities"])
+        degree = self.random_choice(self.locale_data["degrees"])
+        field = self.random_choice(self.locale_data["fields_of_study"])
         
         current_year = datetime.date.today().year
         graduation_year = current_year - self.random.randint(3, 50)
@@ -502,8 +549,8 @@ class AddressProvider(Provider):
     
     def street_name(self) -> str:
         """Generate a random street name"""
-        base_name = self.random.choice(self.locale_data["street_names"])
-        return f"{base_name} {self.random.choice(self.locale_data['street_types'])}"
+        base_name = self.random_choice(self.locale_data["street_names"])
+        return f"{base_name} {self.random_choice(self.locale_data['street_types'])}"
     
     def street_number(self) -> int:
         """Generate a random street/building number"""
@@ -515,7 +562,7 @@ class AddressProvider(Provider):
     
     def city(self) -> str:
         """Generate a random city name"""
-        return self.random.choice(self.locale_data["cities"])
+        return self.random_choice(self.locale_data["cities"])
     
     def postal_code(self) -> str:
         """Generate a random postal code"""
@@ -570,23 +617,23 @@ class CompanyProvider(Provider):
     def _generate_company_name(self) -> str:
         """Generate a company name"""
         patterns = [
-            lambda: self.random.choice(self.locale_data["last_names"]),
+            lambda: self.random_choice(self.locale_data["last_names"]),
             lambda: ''.join(self.random.choices(string.ascii_uppercase, k=self.random.randint(2, 4))),
-            lambda: f"{self.random.choice(self.locale_data['last_names'])}-{self.random.choice(self.locale_data['last_names'])}"
+            lambda: f"{self.random_choice(self.locale_data['last_names'])}-{self.random_choice(self.locale_data['last_names'])}"
         ]
         
-        return self.random.choice(patterns)()
+        return self.random_choice(patterns)()
     
     def _company_suffix(self) -> str:
         """Generate a company type/suffix"""
-        return self.random.choice(self.locale_data["company_suffixes"])
+        return self.random_choice(self.locale_data["company_suffixes"])
     
     def company_name(self) -> str:
         """Generate a full company name"""
         name = self._generate_company_name()
         
         if self.random.random() < 0.4:
-            name = f"{name} {self.random.choice(self.locale_data['company_sectors'])}"
+            name = f"{name} {self.random_choice(self.locale_data['company_sectors'])}"
         
         suffix = self._company_suffix()
         
@@ -611,7 +658,7 @@ class CompanyProvider(Provider):
                 "Leading the industry with innovative solutions."
             ]
         
-        return self.random.choice(phrases)
+        return self.random_choice(phrases)
     
     def industry(self) -> str:
         """Generate a random industry/sector"""
@@ -619,12 +666,12 @@ class CompanyProvider(Provider):
             "Technology", "Healthcare", "Finance", "Manufacturing", "Retail", 
             "Education", "Energy", "Entertainment", "Transportation", "Hospitality"
         ]
-        return self.random.choice(industries)
+        return self.random_choice(industries)
     
     def company_type(self) -> str:
         """Generate a company type"""
         types = ["Startup", "Corporation", "Non-Profit", "Government", "Partnership", "Sole Proprietorship"]
-        return self.random.choice(types)
+        return self.random_choice(types)
     
     def website(self, company_name: str = None) -> str:
         """
@@ -648,7 +695,7 @@ class CompanyProvider(Provider):
         for tr_char, en_char in tr_chars.items():
             domain_name = domain_name.replace(tr_char, en_char)
         
-        domain_suffix = self.random.choice(self.locale_data["domains"])
+        domain_suffix = self.random_choice(self.locale_data["domains"])
         
         return f"www.{domain_name}{domain_suffix}"
     
@@ -680,10 +727,10 @@ class FinanceProvider(Provider):
             "American Express": {"prefix": ["34", "37"], "length": 15}
         }
         
-        card_type = self.random.choice(list(card_types.keys()))
+        card_type = self.random_choice(list(card_types.keys()))
         card_info = card_types[card_type]
         
-        prefix = self.random.choice(card_info["prefix"])
+        prefix = self.random_choice(card_info["prefix"])
         length = card_info["length"]
         
         remaining_length = length - len(prefix)
@@ -714,7 +761,7 @@ class FinanceProvider(Provider):
             "formatted_number": self._format_cc_number(number, card_type),
             "expiration": f"{exp_month:02d}/{exp_year % 100:02d}",
             "cvv": cvv,
-            "holder_name": f"{self.random.choice(self.locale_data['first_names'])} {self.random.choice(self.locale_data['last_names'])}"
+            "holder_name": f"{self.random_choice(self.locale_data['first_names'])} {self.random_choice(self.locale_data['last_names'])}"
         }
         
         return DataContainer(data)
@@ -751,12 +798,12 @@ class FinanceProvider(Provider):
         routing_number = ''.join(self.random.choices(string.digits, k=9))
         
         data = {
-            "account_name": f"{self.random.choice(self.locale_data['first_names'])} {self.random.choice(self.locale_data['last_names'])}",
+            "account_name": f"{self.random_choice(self.locale_data['first_names'])} {self.random_choice(self.locale_data['last_names'])}",
             "account_number": account_number,
             "routing_number": routing_number,
             "iban": self.iban(),
             "swift_bic": ''.join(self.random.choices(string.ascii_uppercase, k=8)),
-            "bank_name": f"{self.random.choice(self.locale_data['last_names'])} Bank"
+            "bank_name": f"{self.random_choice(self.locale_data['last_names'])} Bank"
         }
         
         return DataContainer(data)
@@ -800,8 +847,8 @@ class FinanceProvider(Provider):
             "date": transaction_date.isoformat(),
             "amount": amount,
             "formatted_amount": self.price(amount, amount),
-            "type": self.random.choice(transaction_types),
-            "status": self.random.choice(["completed", "pending", "failed"]),
+            "type": self.random_choice(transaction_types),
+            "status": self.random_choice(["completed", "pending", "failed"]),
             "description": f"Transaction #{self.random.randint(10000, 99999)}"
         }
         
@@ -821,8 +868,8 @@ class InternetProvider(Provider):
             A username string
         """
         if name is None:
-            first = self.random.choice(self.locale_data["first_names"]).lower()
-            last = self.random.choice(self.locale_data["last_names"]).lower()
+            first = self.random_choice(self.locale_data["first_names"]).lower()
+            last = self.random_choice(self.locale_data["last_names"]).lower()
             
             patterns = [
                 lambda f, l: f"{f}",
@@ -831,10 +878,10 @@ class InternetProvider(Provider):
                 lambda f, l: f"{f}.{l}",
                 lambda f, l: f"{f[0]}{l}",
                 lambda f, l: f"{f}{l[0]}",
-                lambda f, l: f"{f}{self.random.choice(['_', '.'])}{l}"
+                lambda f, l: f"{f}{self.random_choice(['_', '.'])}{l}"
             ]
             
-            name = self.random.choice(patterns)(first, last)
+            name = self.random_choice(patterns)(first, last)
         
         tr_chars = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}
         for tr_char, en_char in tr_chars.items():
@@ -878,12 +925,12 @@ class InternetProvider(Provider):
     
     def domain_name(self) -> str:
         """Generate a random domain name"""
-        company = self.random.choice(self.locale_data["last_names"]).lower()
+        company = self.random_choice(self.locale_data["last_names"]).lower()
         tr_chars = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}
         for tr_char, en_char in tr_chars.items():
             company = company.replace(tr_char, en_char)
         
-        suffix = self.random.choice(self.locale_data["domains"])
+        suffix = self.random_choice(self.locale_data["domains"])
         return f"{company}{suffix}"
     
     def url(self, protocol: str = "https") -> str:
@@ -891,7 +938,7 @@ class InternetProvider(Provider):
         domain = self.domain_name()
         
         paths = ["", "index.html", "about", "contact", "products", "services", "blog"]
-        path = self.random.choice(paths)
+        path = self.random_choice(paths)
         
         url = f"{protocol}://{domain}"
         if path:
@@ -919,7 +966,7 @@ class InternetProvider(Provider):
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36"
         ]
-        return self.random.choice(browsers)
+        return self.random_choice(browsers)
 
 class LoremProvider(Provider):
     """Provider for text and content generation"""
@@ -936,7 +983,7 @@ class LoremProvider(Provider):
             "occaecat", "cupidatat", "non", "proident", "sunt", "in", "culpa", "qui", "officia",
             "deserunt", "mollit", "anim", "id", "est", "laborum"
         ]
-        return self.random.choice(words)
+        return self.random_choice(words)
     
     def words(self, num_words: int = 5) -> str:
         """
@@ -1096,6 +1143,25 @@ class DateTimeProvider(Provider):
         dt = datetime.datetime(year, month, day, hour, minute, second, microsecond, tzinfo=tzinfo)
         return dt.isoformat()
 
+class ObjectPool:
+    """Simple object pool for reusing commonly created objects"""
+    def __init__(self, factory, max_size=100):
+        self.factory = factory
+        self.max_size = max_size
+        self._pool = []
+        self._lock = threading.RLock()
+        
+    def get(self):
+        with self._lock:
+            if self._pool:
+                return self._pool.pop()
+            return self.factory()
+            
+    def put(self, obj):
+        with self._lock:
+            if len(self._pool) < self.max_size:
+                self._pool.append(obj)
+
 class MockPy:
     """Main MockPy class - central API for data generation"""
     
@@ -1110,6 +1176,9 @@ class MockPy:
         self.locale = locale
         self._seed = seed if seed is not None else int(time.time() * 1000) & 0xFFFFFFFF
         self._random = random.Random(self._seed)
+        
+        if HAS_NUMPY:
+            np.random.seed(self._seed % (2**32 - 1))
         
         self._data_registry = DataRegistry()
         self._translation_service = TranslationService()
@@ -1130,47 +1199,52 @@ class MockPy:
         if locale in self._data_registry.locales:
             return self._data_registry.locales[locale]
         
-        if locale.startswith("en") or locale.startswith("tr"):
+        try:
             locale_data = self._data_registry.load_locale_data(locale)
             self._data_registry.locales[locale] = locale_data
             return locale_data
-        
-        warnings.warn(
-            f"No built-in data for locale '{locale}'. Deriving from English with translation.",
-            UserWarning
-        )
-        
-        source_locale = "en_US"
-        source_data = self._data_registry.load_locale_data(source_locale)
-        
-        if not self._translation_service.available:
+        except Exception:
+            if locale.startswith("en") or locale.startswith("tr"):
+                locale_data = self._data_registry.load_locale_data(locale)
+                self._data_registry.locales[locale] = locale_data
+                return locale_data
+            
             warnings.warn(
-                "Translation service not available. Install 'translators' package for better multi-language support.",
+                f"No built-in data for locale '{locale}'. Deriving from English with translation.",
                 UserWarning
             )
-            self._data_registry.locales[locale] = source_data
-            return source_data
-        
-        lang_code = locale.split("_")[0] if "_" in locale else locale
-        
-        try:
-            skip_keys = ["email_providers", "domains", "iban_prefix", "phone_prefixes", "timezone", 
-                       "currency", "country_code"]
             
-            translated_data = self._translation_service.translate_dict(
-                source_data, 
-                source_lang='en', 
-                target_lang=lang_code,
-                skip_keys=skip_keys
-            )
+            source_locale = "en_US"
+            source_data = self._data_registry.load_locale_data(source_locale)
             
-            self._data_registry.locales[locale] = translated_data
-            return translated_data
+            if not self._translation_service.available:
+                warnings.warn(
+                    "Translation service not available. Install 'translators' package for better multi-language support.",
+                    UserWarning
+                )
+                self._data_registry.locales[locale] = source_data
+                return source_data
             
-        except Exception as e:
-            warnings.warn(f"Translation failed: {str(e)}. Using English data instead.")
-            self._data_registry.locales[locale] = source_data
-            return source_data
+            lang_code = locale.split("_")[0] if "_" in locale else locale
+            
+            try:
+                skip_keys = ["email_providers", "domains", "iban_prefix", "phone_prefixes", "timezone", 
+                           "currency", "country_code"]
+                
+                translated_data = self._translation_service.translate_dict(
+                    source_data, 
+                    source_lang='en', 
+                    target_lang=lang_code,
+                    skip_keys=skip_keys
+                )
+                
+                self._data_registry.locales[locale] = translated_data
+                return translated_data
+                
+            except Exception as e:
+                warnings.warn(f"Translation failed: {str(e)}. Using English data instead.")
+                self._data_registry.locales[locale] = source_data
+                return source_data
     
     def _init_providers(self):
         """Initialize all data providers"""
@@ -1189,6 +1263,8 @@ class MockPy:
         """Set the random seed for reproducible data generation"""
         self._seed = seed_value
         self._random = random.Random(seed_value)
+        if HAS_NUMPY:
+            np.random.seed(seed_value % (2**32 - 1))
     
     def random_element(self, elements: List[Any]) -> Any:
         """Select a random element from a list"""
@@ -1219,6 +1295,9 @@ class MockPy:
         Returns:
             List of generated data items
         """
+        if count >= 100 and HAS_NUMPY:
+            return self._generate_dataset_parallel(schema, count)
+        
         result = []
         for _ in range(count):
             item = {}
@@ -1226,6 +1305,53 @@ class MockPy:
                 item[field_name] = self._generate_field(field_type)
             result.append(item)
         return result
+    
+    def _generate_dataset_parallel(self, schema: Dict[str, Any], count: int) -> List[Dict[str, Any]]:
+        """Generate dataset using parallel processing for large datasets"""
+        import concurrent.futures
+
+        chunk_size = min(1000, max(100, count // (os.cpu_count() or 4)))
+        chunks = [(schema, min(chunk_size, count - i * chunk_size)) 
+                for i in range((count + chunk_size - 1) // chunk_size)]
+        
+        results = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_chunk = {
+                executor.submit(self._generate_chunk, schema, chunk_size): i 
+                for i, (schema, chunk_size) in enumerate(chunks)
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                results.extend(future.result())
+        
+        return results[:count]
+    
+    def _generate_chunk(self, schema: Dict[str, Any], count: int) -> List[Dict[str, Any]]:
+        """Generate a chunk of data for parallel processing"""
+        result = []
+        for _ in range(count):
+            item = {}
+            for field_name, field_type in schema.items():
+                item[field_name] = self._generate_field(field_type)
+            result.append(item)
+        return result
+    
+    def generate_dataset_stream(self, schema: Dict[str, Any], count: int = 10) -> Generator[Dict[str, Any], None, None]:
+        """
+        Generate a dataset as a stream (generator) to reduce memory usage
+        
+        Args:
+            schema: Schema definition
+            count: Number of items to generate
+            
+        Returns:
+            Generator yielding data items
+        """
+        for _ in range(count):
+            item = {}
+            for field_name, field_type in schema.items():
+                item[field_name] = self._generate_field(field_type)
+            yield item
     
     def _generate_field(self, field_type: Union[str, Dict[str, Any]]) -> Any:
         """

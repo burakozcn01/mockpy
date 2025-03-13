@@ -2,7 +2,7 @@
 
 🚀 Comprehensive Realistic Data Generation Library
 
-[![PyPI version](https://img.shields.io/badge/pypi-0.1.0-blue.svg)](https://pypi.org/project/mockpy/)
+[![PyPI version](https://img.shields.io/badge/pypi-1.0-blue.svg)](https://pypi.org/project/mockpy/)
 [![Python versions](https://img.shields.io/badge/python-3.7%2B-brightgreen.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
