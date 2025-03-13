@@ -155,6 +155,4 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ## 💬 Contact
 
-MockPy Team - info@mockpy.com
-
 Project Link: [https://github.com/mockpy/mockpy](https://github.com/mockpy/mockpy)
