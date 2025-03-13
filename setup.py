@@ -13,7 +13,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="mockpy",
+    name="python-mockpy",
     version=get_version(),
     author="Reloading",
     author_email="reloading001@hotmail.com",

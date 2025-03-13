@@ -20,7 +20,7 @@ MockPy is a Python library for generating realistic and comprehensive mock data 
 ## 📦 Installation
 
 ```bash
-pip install mockpy
+pip install python-mockpy
 ```
 
 ## 🚀 Quick Start
