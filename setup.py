@@ -16,7 +16,7 @@ setup(
     description="Comprehensive realistic data generation library for testing and development",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/mockpy/mockpy",
+    url="https://github.com/burakozcn01/mockpy",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
